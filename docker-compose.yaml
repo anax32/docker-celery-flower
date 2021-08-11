@@ -1,0 +1,54 @@
+version: '3'
+services:
+  broker:
+    image: rabbitmq
+    ports:
+      - "15672:15672"
+      - "5672:5672"
+    volumes:
+      - ./config/rabbitmq/rabbit.conf:/etc/rabbit/rabbit.conf
+
+
+  backend:
+    image: redis
+#    command: redis-server /usr/local/etc/redis/redis.conf
+    ports:
+      - "6379:6379"
+
+  fast-worker:
+    image: anax32/clree-fast-worker
+    build: .
+    environment:
+      MYAPP_BROKER_URI: "pyamqp://guest@broker/"
+      MYAPP_BACKEND_URI: "redis://backend:6379/0"
+    command: celery --app myapp.worker.main:celery_app worker
+    depends_on:
+      - backend
+      - broker
+# -l info -Q recommendation_worker -c 1 -n recommendation_worker@%h -Ofair
+
+  slow-worker:
+    image: anax32/clree-slow-worker
+    build: .
+    environment:
+      MYAPP_BROKER_URI: "pyamqp://guest@broker/"
+      MYAPP_BACKEND_URI: "redis://backend:6379/0"
+    command: celery --app myapp.worker.main:celery_app worker
+    depends_on:
+      - backend
+      - broker
+
+# -l info -Q periodic_worker -c 1 -n periodic_worker@%h -Ofair
+
+  api:
+    image: anax32/clree-api
+    build: .
+    environment:
+      MYAPP_BROKER_URI: "pyamqp://guest@broker/"
+      MYAPP_BACKEND_URI: "redis://backend:6379/0"
+    ports:
+      - 8000:8000
+    command: gunicorn -w 1 -k uvicorn.workers.UvicornH11Worker -b 0.0.0.0:8000 --access-logfile - myapp.api.main:app
+    depends_on:
+      - backend
+      - broker
