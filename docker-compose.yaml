@@ -1,7 +1,7 @@
 version: '3'
 services:
   broker:
-    image: rabbitmq
+    image: rabbitmq:3-management
     ports:
       - "15672:15672"
       - "5672:5672"
@@ -11,7 +11,6 @@ services:
 
   backend:
     image: redis
-#    command: redis-server /usr/local/etc/redis/redis.conf
     ports:
       - "6379:6379"
 
@@ -19,36 +18,47 @@ services:
     image: anax32/clree-fast-worker
     build: .
     environment:
-      MYAPP_BROKER_URI: "pyamqp://guest@broker/"
-      MYAPP_BACKEND_URI: "redis://backend:6379/0"
-    command: celery --app myapp.worker.main:celery_app worker
+      CELERY_BROKER_URL: "amqp://guest@broker/"
+      CELERY_RESULT_BACKEND: "redis://backend:6379/0"
+    command: celery --app myapp.worker.main:celery_app worker -E
     depends_on:
       - backend
       - broker
-# -l info -Q recommendation_worker -c 1 -n recommendation_worker@%h -Ofair
 
   slow-worker:
     image: anax32/clree-slow-worker
     build: .
     environment:
-      MYAPP_BROKER_URI: "pyamqp://guest@broker/"
-      MYAPP_BACKEND_URI: "redis://backend:6379/0"
-    command: celery --app myapp.worker.main:celery_app worker
+      CELERY_BROKER_URL: "amqp://guest@broker/"
+      CELERY_RESULT_BACKEND: "redis://backend:6379/0"
+    command: celery --app myapp.worker.main:celery_app worker -E
     depends_on:
       - backend
       - broker
-
-# -l info -Q periodic_worker -c 1 -n periodic_worker@%h -Ofair
 
   api:
     image: anax32/clree-api
     build: .
     environment:
-      MYAPP_BROKER_URI: "pyamqp://guest@broker/"
-      MYAPP_BACKEND_URI: "redis://backend:6379/0"
+      CELERY_BROKER_URL: "amqp://guest@broker/"
+      CELERY_RESULT_BACKEND: "redis://backend:6379/0"
     ports:
       - 8000:8000
     command: gunicorn -w 1 -k uvicorn.workers.UvicornH11Worker -b 0.0.0.0:8000 --access-logfile - myapp.api.main:app
+    depends_on:
+      - backend
+      - broker
+
+  monitor:
+    image: anax32/clree-monitor
+    build: .
+    environment:
+      CELERY_BROKER_URL: "amqp://guest@broker/"
+      CELERY_RESULT_BACKEND: "redis://backend:6379/0"
+    ports:
+      - 5555:5555
+    entrypoint: /bin/bash
+    command: -c "sleep 10 ; celery flower --broker_api=http://guest:guest@broker:15672/api/"
     depends_on:
       - backend
       - broker

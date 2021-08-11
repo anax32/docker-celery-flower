@@ -1,4 +1,5 @@
 celery[redis]
 fastapi
+flower
 gunicorn
 uvicorn
