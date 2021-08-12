@@ -14,7 +14,7 @@ services:
     ports:
       - "6379:6379"
 
-  fast-worker:
+  worker:
     image: anax32/clree-fast-worker
     build: .
     environment:
@@ -24,17 +24,8 @@ services:
     depends_on:
       - backend
       - broker
-
-  slow-worker:
-    image: anax32/clree-slow-worker
-    build: .
-    environment:
-      CELERY_BROKER_URL: "amqp://guest@broker/"
-      CELERY_RESULT_BACKEND: "redis://backend:6379/0"
-    command: celery --app myapp.worker.main:celery_app worker -E
-    depends_on:
-      - backend
-      - broker
+    deploy:
+      replicas: 2
 
   api:
     image: anax32/clree-api
