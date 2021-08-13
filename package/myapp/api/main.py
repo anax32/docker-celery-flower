@@ -27,10 +27,33 @@ example API to invoke tasks executed by Celery
 The result storage **requires** that celery is configured with a backend: see
 the `docker-compose.yaml` file for details on this.
 """
+import os
+import sys
+import json
+import logging
+
+
+# setup logging
+# FIXME: move to logging config file
+logger = logging.getLogger()
+
+handler = logging.StreamHandler(sys.stdout)
+handler.setFormatter(
+    logging.Formatter(
+        "[%(name)s - %(filename)s:%(lineno)s:%(funcName)s] %(levelname)s - %(message)s"
+    )
+)
+logger.addHandler(handler)
+#logger.removeHandler(default_handler)
+logger.setLevel(os.getenv("LOG_LEVEL", "DEBUG"))
+
+
 from fastapi import FastAPI
 
 from myapp.worker.main import celery_app
 from myapp.worker import fast, slow
+from myapp.worker import create_state_monitor as create_celery_state_monitor
+from myapp.worker import parse_state_to_dict as parse_celery_state_to_dict
 from myapp.worker.callbacks import MyAppTask
 
 from myapp import __version__ as myapp_version
@@ -41,7 +64,7 @@ tags_metadata = [
         "name": "work",
         "description": "Tasks dispatched to worker nodes in the cluster.",
         "externalDocs": {
-            "description": "Celery workers documentation",
+            "description": "Celery docs",
             "url": "https://docs.celeryproject.org/en/stable/userguide/workers.html",
         },
     },
@@ -49,7 +72,7 @@ tags_metadata = [
         "name": "tasks",
         "description": "Information about running and completed tasks.",
         "externalDocs": {
-            "description": "Celery tasks documentation",
+            "description": "Celery docs",
             "url": "https://docs.celeryproject.org/en/stable/userguide/tasks.html"
         }
 
@@ -63,6 +86,14 @@ app = FastAPI(
     version=myapp_version,
     openapi_tags=tags_metadata
 )
+
+
+
+@app.on_event("startup")
+async def startup():
+  """create a celery state monitor which runs in the background
+  """
+  app.state.celery_state = create_celery_state_monitor(celery_app)
 
 
 @app.get("/")
@@ -115,9 +146,9 @@ def get_tasks():
 @app.get("/tasks/{id}", tags=["tasks"])
 def get_task_information(id: str):
   """get status of a specific task"""
-  from celery.result import AsyncResult as CeleryResult
+  from celery.result import AsyncResult as CeleryAsyncResult
 
-  r = CeleryResult(id, backend=celery_app.backend)
+  r = CeleryAsyncResult(id, backend=celery_app.backend)
 
   info = {
     "id": id,
@@ -127,3 +158,9 @@ def get_task_information(id: str):
   }
 
   return info
+
+
+@app.get("/state", tags=["state"])
+def get_state_information():
+  """get state information about the celery cluster"""
+  return parse_celery_state_to_dict(app.state.celery_state)
